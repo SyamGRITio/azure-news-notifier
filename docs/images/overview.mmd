@@ -1,0 +1,5 @@
+flowchart LR
+    start["起動"] --> feeds["RSSから記事を取得"]
+    feeds --> dedup["配信済みを除外"]
+    dedup --> translation["英語なら日本語に翻訳"]
+    translation --> slack["Slackへまとめて送信"]
