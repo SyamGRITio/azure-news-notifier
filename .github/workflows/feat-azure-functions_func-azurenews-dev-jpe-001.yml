@@ -30,12 +30,13 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: pip install -r app/requirements.txt
+        run: python -m pip install -e './app[dev,azure]'
 
-      # Optional: Add step to run tests here
+      - name: Run tests
+        run: python -m pytest -c app/pyproject.toml app/tests -q
 
       - name: Zip artifact for deployment
-        run: zip release.zip ./* -r
+        run: zip -r release.zip app
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
@@ -48,6 +49,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build
+    environment: dev
     permissions:
       id-token: write #This is required for requesting the JWT
       contents: read #This is required for actions/checkout
@@ -74,7 +76,7 @@ jobs:
         uses: Azure/functions-action@v1
         id: deploy-to-function
         with:
-          app-name: 'func-azurenews-dev-jpe-001'
+          app-name: 'func-azurenews-${{ vars.DEPLOY_ENV }}-jpe-001'
           package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
           remote-build: true
           respect-funcignore: true
