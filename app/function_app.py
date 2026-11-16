@@ -84,7 +84,10 @@ def run_azure():
 
 
 @app.function_name(name="daily_news")
-@app.timer_trigger(schedule="0 0 0 * * *", arg_name="timer", run_on_startup=False, use_monitor=True)
+# Flex LinuxのタイマーはUTC指定。23:00 UTC = 翌日08:00 JST。
+@app.timer_trigger(
+    schedule="0 0 23 * * *", arg_name="timer", run_on_startup=False, use_monitor=True
+)
 def daily_news(timer: func.TimerRequest) -> None:
     try:
         run_azure()

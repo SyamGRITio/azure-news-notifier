@@ -13,7 +13,7 @@ def test_timer_is_daily_and_disabled_at_startup():
     assert len(functions) == 1
     binding = json.loads(functions[0].get_function_json())["bindings"][0]
     assert binding["type"] == "timerTrigger"
-    assert binding["schedule"] == "0 0 0 * * *"
+    assert binding["schedule"] == "0 0 23 * * *"
     assert binding["runOnStartup"] is False
     assert binding["useMonitor"] is True
 

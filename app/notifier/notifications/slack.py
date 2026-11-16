@@ -52,7 +52,13 @@ def build_payload(digest: Digest) -> dict[str, Any]:
                     },
                 }
             )
-    return {"text": text, "blocks": blocks, "unfurl_links": False, "unfurl_media": False}
+    preview_enabled = bool(digest.articles) and not digest.is_summary
+    return {
+        "text": text,
+        "blocks": blocks,
+        "unfurl_links": preview_enabled,
+        "unfurl_media": preview_enabled,
+    }
 
 
 class SlackNotifier:

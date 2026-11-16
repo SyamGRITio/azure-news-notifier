@@ -8,7 +8,9 @@
   "logging": {
     "logLevel": {
       "default": "Warning",
-      "Function.daily_news": "Information"
+      "Function.daily_news": "Information",
+      "Host.Results": "Information",
+      "azure": "Warning"
     }
   }
 }

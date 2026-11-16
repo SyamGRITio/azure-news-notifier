@@ -98,7 +98,8 @@ def test_slack_keeps_long_links_and_untrusted_text_in_separate_blocks():
 
 
 @pytest.mark.parametrize(
-    "data", [[], {}, {"month": "2026-11", "translation_attempts": -1, "delivered_urls": []}]
+    "data",
+    [[], {}, {"month": "2026-11", "translation_attempts": -1, "delivered_urls": []}],
 )
 def test_corrupt_state_stops_instead_of_resetting(tmp_path, data):
     path = tmp_path / "state.json"
@@ -158,7 +159,9 @@ def test_foundry_project_uses_verified_openai_compatible_route():
     assert http.calls[0][0] == "https://example.openai.azure.com/openai/v1/chat/completions"
 
 
-def test_separate_slack_posts_checkpoint_each_article_and_retry_only_failed_one(tmp_path):
+def test_separate_slack_posts_checkpoint_each_article_and_retry_only_failed_one(
+    tmp_path,
+):
     from datetime import datetime
 
     class PartialHttp(FakeHttp):
@@ -218,4 +221,18 @@ def test_separate_slack_posts_checkpoint_each_article_and_retry_only_failed_one(
     )
     assert len(http.calls) == 2  # 未送信の記事Bと、最後の結果通知。
     assert result.articles[0].url == "https://example.com/b"
-    assert store.load().delivered_urls == {"https://example.com/a", "https://example.com/b"}
+    assert store.load().delivered_urls == {
+        "https://example.com/a",
+        "https://example.com/b",
+    }
+
+
+def test_article_previews_enabled_but_result_preview_disabled():
+    article = Article("更新", "概要", "https://example.com/a")
+    payload = build_payload(Digest((article,)))
+    assert payload["unfurl_links"] is True
+    assert payload["unfurl_media"] is True
+    for result in [Digest(()), Digest((article,), is_summary=True)]:
+        payload = build_payload(result)
+        assert payload["unfurl_links"] is False
+        assert payload["unfurl_media"] is False
