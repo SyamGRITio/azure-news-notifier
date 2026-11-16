@@ -4,7 +4,7 @@ from contextlib import contextmanager
 import pytest
 
 import function_app
-from notifier.models import DeliveryState
+from notifier.models import DeliveryState, Digest
 from notifier.state_store import AlreadyRunningError, LeaseLostError
 
 
@@ -40,6 +40,7 @@ def test_timer_skips_concurrent_run(monkeypatch):
 @pytest.mark.parametrize("lost", [False, True])
 def test_azure_wiring_uses_identity_blob_and_checks_lock_before_send(monkeypatch, lost):
     events = []
+    monkeypatch.setenv("DELIVERY_START_AT", "2026-11-16T00:00:00+09:00")
     monkeypatch.setenv("FOUNDRY_ENDPOINT", "https://example.openai.azure.com")
     monkeypatch.setenv("FOUNDRY_DEPLOYMENT", "gpt-5-nano")
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/TEST")
@@ -101,11 +102,12 @@ def test_azure_wiring_uses_identity_blob_and_checks_lock_before_send(monkeypatch
         def send(self, digest):
             events.append("send")
 
-    def workflow(feeds, fetch, translate, send, state, month, save):
+    def workflow(feeds, fetch, translate, send, state, month, save, *, start_at):
+        assert start_at.isoformat() == "2026-11-15T15:00:00+00:00"
         assert len(feeds) == 9
         send(None)
         save(state)
-        return type("Result", (), {"articles": [], "notices": []})()
+        return Digest((), is_summary=True)
 
     monkeypatch.setattr(function_app, "ManagedIdentityCredential", Credential)
     monkeypatch.setattr(function_app, "BlobClient", Blob)
@@ -120,3 +122,13 @@ def test_azure_wiring_uses_identity_blob_and_checks_lock_before_send(monkeypatch
     else:
         function_app.run_azure()
         assert events == ["lock-check", "send", "save"]
+
+
+@pytest.mark.parametrize("value", ["", "not-a-date", "2026-11-16", "2026-11-16T00:00:00"])
+def test_invalid_start_setting_stops_before_azure_access(monkeypatch, value):
+    monkeypatch.setenv("DELIVERY_START_AT", value)
+    monkeypatch.setattr(
+        function_app, "ManagedIdentityCredential", lambda: pytest.fail("Azure access")
+    )
+    with pytest.raises(ValueError, match="DELIVERY_START_AT"):
+        function_app.run_azure()

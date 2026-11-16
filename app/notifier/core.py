@@ -1,6 +1,7 @@
 """収集から配信・既読保存までの順序を管理する。外部SDKには依存しない。"""
 
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 
 from .feed_parser import has_japanese, parse_feed
 from .models import Article, DeliveryState, Digest
@@ -74,6 +75,8 @@ def run(
     *,
     daily_limit: int = 10,
     monthly_limit: int = 30,
+    start_at: datetime | None = None,
+    now: datetime | None = None,
 ) -> Digest:
     """1回の日次配信。同じ状態ファイルを使うプロセスは同時起動しない。"""
     if not 1 <= len(feeds) <= 9:
@@ -85,20 +88,70 @@ def run(
         state.month = month
         state.translation_attempts = 0
 
+    if start_at is not None and start_at.utcoffset() is None:
+        raise ValueError("start_at must have a timezone")
+    now = now or datetime.now(UTC)
+    if now.utcoffset() is None:
+        raise ValueError("now must have a timezone")
+
     candidates, notices, failed_feeds = _collect_articles(feeds, fetch, state.delivered_urls)
+    skipped_undated = 0
+    if start_at is not None:
+        skipped_undated = sum(article.published_at is None for article in candidates)
+        candidates = [
+            article
+            for article in candidates
+            if article.published_at is not None and start_at <= article.published_at <= now
+        ]
+        # 登録順で最初のRSSが枠を独占しないよう、全配信元を公開日時順に並べます。
+        candidates.sort(key=lambda article: article.published_at)
     selected = candidates[:daily_limit]
-    translated = [
-        _translate_or_original(article, translate, state, save_state, monthly_limit, notices)
-        for article in selected
-    ]
     remaining = len(candidates) - len(selected)
     if remaining:
-        notices.append(f"日次上限: 未配信{remaining}件（次回のRSSに残っていれば再取得）")
+        notices.append(f"件数上限: 未配信{remaining}件（次回のRSSに残っていれば再取得）")
+    if skipped_undated:
+        notices.append(f"日時不明: {skipped_undated}件を除外")
 
-    digest = Digest(tuple(translated), tuple(dict.fromkeys(notices)), failed_feeds, len(feeds))
+    delivered: list[Article] = []
+    translation_failures = 0
+    translation_limited = False
+
+    def result(*, delivery_failures: int = 0) -> Digest:
+        return Digest(
+            tuple(delivered),
+            tuple(dict.fromkeys(notices)),
+            failed_feeds,
+            len(feeds),
+            translation_failures=translation_failures,
+            remaining=remaining,
+            skipped_undated=skipped_undated,
+            translation_limited=translation_limited,
+            delivery_failures=delivery_failures,
+            is_summary=True,
+        )
+
+    for article in selected:
+        article_notices: list[str] = []
+        translated = _translate_or_original(
+            article, translate, state, save_state, monthly_limit, article_notices
+        )
+        translation_failures += int("翻訳失敗: 原文を配信" in article_notices)
+        translation_limited |= "月間翻訳上限: 原文を配信" in article_notices
+        notices.extend(article_notices)
+        try:
+            send(Digest((translated,)))
+        except Exception:
+            # 先に送れた記事の既読は残し、未送信の記事だけ次回の候補にします。
+            try:
+                send(result(delivery_failures=1))
+            except Exception:
+                pass  # 通知先自体が停止している場合は、呼び出し元の失敗ログで確認します。
+            raise
+        state.delivered_urls.add(article.url)
+        save_state(state)
+        delivered.append(translated)
+
+    digest = result()
     send(digest)
-
-    # Slack送信に失敗した場合はここに到達せず、次回も配信候補に残します。
-    state.delivered_urls.update(article.url for article in selected)
     save_state(state)
     return digest

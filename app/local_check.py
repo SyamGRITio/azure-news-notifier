@@ -13,7 +13,7 @@ from urllib.error import HTTPError, URLError
 from dotenv import load_dotenv
 
 from notifier.core import run
-from notifier.feed_parser import has_japanese, parse_feed
+from notifier.feed_parser import has_japanese, parse_feed, parse_timestamp
 from notifier.http_client import HttpClient, RedirectBlockedError, ResponseTooLargeError
 from notifier.models import Article, DeliveryState, Digest
 from notifier.notifications.slack import SlackNotifier
@@ -156,7 +156,11 @@ DEMO_FEED = b"""<rss><channel><item>
 
 
 def _print_digest(digest: Digest) -> None:
-    print(digest.heading)
+    if digest.is_summary:
+        print(digest.heading)
+        for notice in digest.notices:
+            print(notice)
+        return
     for article in digest.articles:
         print(f"\n{article.title}\n{article.summary}\n{article.url}")
     for notice in digest.notices:
@@ -222,7 +226,16 @@ def _run_live(feeds_path: Path, state_path: Path, month: str, *, smoke_test: boo
                 "Slackで内容を確認してください。"
             )
         else:
-            run(feeds, http.get, translator.translate, notifier.send, state, month, store.save)
+            run(
+                feeds,
+                http.get,
+                translator.translate,
+                notifier.send,
+                state,
+                month,
+                store.save,
+                start_at=parse_timestamp(os.environ.get("DELIVERY_START_AT", "")),
+            )
             print("配信処理が完了しました。Slackで結果を確認してください。")
 
 

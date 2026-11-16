@@ -77,4 +77,6 @@ class FoundryTranslator:
             raise ValueError("Translation must contain title and summary strings")
         if article.summary and not summary.strip():
             raise ValueError("Translation omitted the summary")
-        return Article(title.strip()[:200], summary.strip()[:500], article.url)
+        return Article(
+            title.strip()[:200], summary.strip()[:500], article.url, article.published_at
+        )

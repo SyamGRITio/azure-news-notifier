@@ -12,6 +12,7 @@ from azure.identity import ManagedIdentityCredential
 from azure.storage.blob import BlobClient
 
 from notifier.core import run
+from notifier.feed_parser import parse_timestamp
 from notifier.http_client import HttpClient, validate_https_url
 from notifier.notifications.slack import SlackNotifier
 from notifier.state_store import AlreadyRunningError, BlobStateStore
@@ -22,6 +23,8 @@ JST = timezone(timedelta(hours=9))
 
 
 def run_azure():
+    # 開始日時の未設定で過去記事を大量配信しないよう、外部接続前に検証します。
+    start_at = parse_timestamp(os.environ.get("DELIVERY_START_AT", ""))
     feeds = json.loads(Path(__file__).with_name("feeds.json").read_text(encoding="utf-8-sig"))
     if not isinstance(feeds, list) or not all(isinstance(url, str) for url in feeds):
         raise ValueError("feeds.json must contain feed URLs")
@@ -66,8 +69,17 @@ def run_azure():
                     state,
                     datetime.now(JST).strftime("%Y-%m"),
                     store.save,
+                    start_at=start_at,
                 )
-                logging.info("Azure news delivery completed: articles=%s", len(result.articles))
+                logging.info(
+                    "Azure news delivery completed: articles=%s failed_feeds=%s "
+                    "translation_failures=%s remaining=%s skipped_undated=%s",
+                    len(result.articles),
+                    result.failed_feeds,
+                    result.translation_failures,
+                    result.remaining,
+                    result.skipped_undated,
+                )
                 return result
 
 
