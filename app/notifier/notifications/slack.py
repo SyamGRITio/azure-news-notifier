@@ -22,7 +22,7 @@ def build_payload(digest: Digest) -> dict[str, Any]:
                 else "記事を配信できませんでした。"
             )
         elif digest.articles:
-            message = f"記事を{len(digest.articles)}件配信しました。"
+            message = "配信処理が完了しました。"
         else:
             message = "新しい記事はありません。"
         lines = [f"【Azure Functions】{message}"]

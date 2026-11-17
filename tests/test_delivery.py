@@ -58,7 +58,7 @@ def test_feed_translation_slack_and_persistent_state(tmp_path):
     assert http.calls[0][1]["max_completion_tokens"] == 400
     assert http.calls[1][1]["blocks"][1]["text"]["text"] == "<https://example.com/a|更新>"
     assert http.calls[1][1]["blocks"][2]["text"]["text"] == "概要"
-    assert http.calls[2][1]["text"] == "【Azure Functions】記事を1件配信しました。"
+    assert http.calls[2][1]["text"] == "【Azure Functions】配信処理が完了しました。"
 
 
 def test_incomplete_translation_is_rejected():
@@ -365,6 +365,9 @@ def test_line_only_replay_preserves_slack_history_and_translation_budget(tmp_pat
     )
     assert len(line_calls) == 1
     assert all(digest.is_summary for digest in slack_calls)
+    assert slack_calls[-1].sent_slack == 0
+    assert slack_calls[-1].sent_line == 1
+    assert build_payload(slack_calls[-1])["text"] == "【Azure Functions】配信処理が完了しました。"
     assert store.load().delivered_urls == {url}
     assert store.load().line_delivered_urls == {url}
     assert store.load().translation_attempts == 4
