@@ -77,6 +77,7 @@ def run(
     monthly_limit: int = 30,
     start_at: datetime | None = None,
     now: datetime | None = None,
+    send_line: SendDigest | None = None,
 ) -> Digest:
     """1回の日次配信。同じ状態ファイルを使うプロセスは同時起動しない。"""
     if not 1 <= len(feeds) <= 9:
@@ -94,7 +95,14 @@ def run(
     if now.utcoffset() is None:
         raise ValueError("now must have a timezone")
 
-    candidates, notices, failed_feeds = _collect_articles(feeds, fetch, state.delivered_urls)
+    if send_line is not None and state.line_delivered_urls is None:
+        # LINEの初回追加で過去のSlack配信記事をまとめて再送しないよう引き継ぎます。
+        state.line_delivered_urls = set(state.delivered_urls)
+        save_state(state)
+    delivered_urls = state.delivered_urls
+    if send_line is not None:
+        delivered_urls = state.delivered_urls & state.line_delivered_urls
+    candidates, notices, failed_feeds = _collect_articles(feeds, fetch, delivered_urls)
     skipped_undated = 0
     if start_at is not None:
         skipped_undated = sum(article.published_at is None for article in candidates)
@@ -115,6 +123,9 @@ def run(
     delivered: list[Article] = []
     translation_failures = 0
     translation_limited = False
+    sent_slack = 0
+    sent_line = 0
+    send_errors: list[Exception] = []
 
     def result(*, delivery_failures: int = 0) -> Digest:
         return Digest(
@@ -128,6 +139,9 @@ def run(
             translation_limited=translation_limited,
             delivery_failures=delivery_failures,
             is_summary=True,
+            sent_slack=sent_slack,
+            sent_line=sent_line,
+            line_enabled=send_line is not None,
         )
 
     for article in selected:
@@ -138,20 +152,33 @@ def run(
         translation_failures += int("翻訳失敗: 原文を配信" in article_notices)
         translation_limited |= "月間翻訳上限: 原文を配信" in article_notices
         notices.extend(article_notices)
-        try:
-            send(Digest((translated,)))
-        except Exception:
-            # 先に送れた記事の既読は残し、未送信の記事だけ次回の候補にします。
+        # 送信先ごとに成功を保存します。片方の失敗でも、もう片方は配信を続けます。
+        destinations = [("Slack", send, state.delivered_urls)]
+        if send_line is not None:
+            destinations.append(("LINE", send_line, state.line_delivered_urls))
+        for name, notify, successful_urls in destinations:
+            if article.url in successful_urls:
+                continue
             try:
-                send(result(delivery_failures=1))
-            except Exception:
-                pass  # 通知先自体が停止している場合は、呼び出し元の失敗ログで確認します。
-            raise
-        state.delivered_urls.add(article.url)
-        save_state(state)
-        delivered.append(translated)
+                notify(Digest((translated,)))
+            except Exception as error:
+                send_errors.append(error)
+                notices.append(f"{name}送信失敗: 未送信の記事は次回再試行")
+                continue
+            successful_urls.add(article.url)
+            save_state(state)
+            if name == "Slack":
+                sent_slack += 1
+            else:
+                sent_line += 1
+        if article.url in state.delivered_urls or (
+            send_line is not None and article.url in state.line_delivered_urls
+        ):
+            delivered.append(translated)
 
-    digest = result()
+    digest = result(delivery_failures=len(send_errors))
     send(digest)
     save_state(state)
+    if send_errors:
+        raise send_errors[0]
     return digest

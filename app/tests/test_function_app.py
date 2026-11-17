@@ -102,7 +102,7 @@ def test_azure_wiring_uses_identity_blob_and_checks_lock_before_send(monkeypatch
         def send(self, digest):
             events.append("send")
 
-    def workflow(feeds, fetch, translate, send, state, month, save, *, start_at):
+    def workflow(feeds, fetch, translate, send, state, month, save, *, start_at, send_line=None):
         assert start_at.isoformat() == "2026-11-15T15:00:00+00:00"
         assert len(feeds) == 9
         send(None)

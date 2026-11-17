@@ -11,13 +11,15 @@ from ..models import Digest
 
 def build_payload(digest: Digest) -> dict[str, Any]:
     if digest.is_summary or not digest.articles:
-        lines = [digest.heading]
+        lines = ["【Azure Functions｜配信結果】", digest.heading]
+        if digest.line_enabled:
+            lines.append(f"送信成功：Slack {digest.sent_slack}件 / LINE {digest.sent_line}件")
         lines.append(
             f"RSS取得失敗：{digest.failed_feeds}/{digest.total_feeds}件 / "
             f"翻訳失敗：{digest.translation_failures}件"
         )
         if digest.delivery_failures:
-            lines.append("記事の送信に失敗し、途中で停止しました。")
+            lines.append("一部の送信先に届けられませんでした。成功済みの送信先へは再送しません。")
         lines.extend(digest.notices)
         text = "\n".join(lines)
         blocks = [{"type": "section", "text": {"type": "plain_text", "text": text}}]
@@ -29,8 +31,14 @@ def build_payload(digest: Digest) -> dict[str, Any]:
         title = escape(article.title[:200].replace("|", "｜"), quote=False)
         safe_url = article.url.replace("&", "&amp;").replace("|", "%7C")
         safe_url = safe_url.replace("<", "%3C").replace(">", "%3E")
-        text = f"{title}\n{safe_url}"
+        source = (
+            "【動作確認｜ローカル実送信・実RSS記事】"
+            if digest.test_message
+            else "【Azure Functions｜RSS配信】"
+        )
+        text = f"{source}\n{title}\n{safe_url}"
         blocks = [
+            {"type": "context", "elements": [{"type": "plain_text", "text": source}]},
             {
                 "type": "section",
                 "text": {
@@ -38,7 +46,7 @@ def build_payload(digest: Digest) -> dict[str, Any]:
                     "text": f"<{safe_url}|{title}>",
                     "verbatim": True,
                 },
-            }
+            },
         ]
         if article.summary:
             summary = article.summary.strip()

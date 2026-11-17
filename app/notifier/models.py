@@ -17,6 +17,7 @@ class DeliveryState:
     month: str = ""
     translation_attempts: int = 0
     delivered_urls: set[str] = field(default_factory=set)
+    line_delivered_urls: set[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,10 @@ class Digest:
     translation_limited: bool = False
     delivery_failures: int = 0
     is_summary: bool = False
+    test_message: bool = False
+    sent_slack: int = 0
+    sent_line: int = 0
+    line_enabled: bool = False
 
     @property
     def status(self) -> str:

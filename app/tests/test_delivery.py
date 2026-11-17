@@ -56,9 +56,12 @@ def test_feed_translation_slack_and_persistent_state(tmp_path):
     assert len(http.calls) == 3
     assert http.calls[0][2] == {"Authorization": "Bearer fake-token"}
     assert http.calls[0][1]["max_completion_tokens"] == 400
-    assert http.calls[1][1]["blocks"][0]["text"]["text"] == "<https://example.com/a|更新>"
-    assert http.calls[1][1]["blocks"][1]["text"]["text"] == "概要"
-    assert http.calls[2][1]["text"] == "配信完了：1件\nRSS取得失敗：0/1件 / 翻訳失敗：0件"
+    assert http.calls[1][1]["blocks"][1]["text"]["text"] == "<https://example.com/a|更新>"
+    assert http.calls[1][1]["blocks"][2]["text"]["text"] == "概要"
+    assert (
+        http.calls[2][1]["text"]
+        == "【Azure Functions｜配信結果】\n配信完了：1件\nRSS取得失敗：0/1件 / 翻訳失敗：0件"
+    )
 
 
 def test_incomplete_translation_is_rejected():
@@ -89,12 +92,12 @@ def test_translation_spacing_without_waiting(monkeypatch):
 def test_slack_keeps_long_links_and_untrusted_text_in_separate_blocks():
     article = Article("<!channel>" * 20, "<&>" * 160, "https://example.com/" + "a" * 1900)
     payload = build_payload(Digest((article,)))
-    assert payload["blocks"][1]["text"]["type"] == "plain_text"
-    assert article.url in payload["blocks"][0]["text"]["text"]
-    assert "<!channel>" not in payload["blocks"][0]["text"]["text"]
-    assert len(payload["blocks"][1]["text"]["text"]) == 180
-    assert len(payload["blocks"]) == 2
-    assert all(len(block["text"]["text"]) <= 3000 for block in payload["blocks"])
+    assert payload["blocks"][2]["text"]["type"] == "plain_text"
+    assert article.url in payload["blocks"][1]["text"]["text"]
+    assert "<!channel>" not in payload["blocks"][1]["text"]["text"]
+    assert len(payload["blocks"][2]["text"]["text"]) == 180
+    assert len(payload["blocks"]) == 3
+    assert all(len(block["text"]["text"]) <= 3000 for block in payload["blocks"] if "text" in block)
 
 
 @pytest.mark.parametrize(
@@ -179,8 +182,9 @@ def test_separate_slack_posts_checkpoint_each_article_and_retry_only_failed_one(
 
         def post_json(self, url, payload, headers=None):
             self.calls.append((url, payload, headers))
-            if self.fail_second and payload["blocks"][0]["text"]["text"].startswith(
-                "<https://example.com/b|"
+            if self.fail_second and any(
+                block.get("text", {}).get("text", "").startswith("<https://example.com/b|")
+                for block in payload["blocks"]
             ):
                 return b"invalid_payload"
             return b"ok"
@@ -204,7 +208,7 @@ def test_separate_slack_posts_checkpoint_each_article_and_retry_only_failed_one(
         )
     assert store.load().delivered_urls == {"https://example.com/a"}
     assert "一部失敗：1件" in http.calls[-1][1]["text"]
-    assert "途中で停止" in http.calls[-1][1]["text"]
+    assert "一部の送信先" in http.calls[-1][1]["text"]
 
     http.calls.clear()
     http.fail_second = False

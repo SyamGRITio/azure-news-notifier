@@ -14,6 +14,7 @@ from azure.storage.blob import BlobClient
 from notifier.core import run
 from notifier.feed_parser import parse_timestamp
 from notifier.http_client import HttpClient, validate_https_url
+from notifier.notifications.line import LineNotifier
 from notifier.notifications.slack import SlackNotifier
 from notifier.state_store import AlreadyRunningError, BlobStateStore
 from notifier.translation import FoundryTranslator
@@ -51,6 +52,14 @@ def run_azure():
                     http,
                 )
                 slack = SlackNotifier(os.environ["SLACK_WEBHOOK_URL"], http)
+                line_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
+                line_recipient = os.environ.get("LINE_RECIPIENT_ID", "").strip()
+                line = None
+                if line_token and line_recipient:
+                    line = LineNotifier(line_token, line_recipient, http)
+                elif line_token or line_recipient:
+                    # トークンだけが設定済みでも、既存Slackの配信は止めません。
+                    logging.warning("LINE delivery disabled: LINE configuration is incomplete")
 
                 def translate(article):
                     store.ensure_lock()
@@ -61,6 +70,10 @@ def run_azure():
                     store.ensure_lock()
                     slack.send(digest)
 
+                def send_line(digest):
+                    store.ensure_lock()
+                    line.send(digest)
+
                 result = run(
                     feeds,
                     http.get,
@@ -70,6 +83,7 @@ def run_azure():
                     datetime.now(JST).strftime("%Y-%m"),
                     store.save,
                     start_at=start_at,
+                    send_line=send_line if line is not None else None,
                 )
                 logging.info(
                     "Azure news delivery completed: articles=%s failed_feeds=%s "

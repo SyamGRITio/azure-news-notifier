@@ -16,6 +16,7 @@ from notifier.core import run
 from notifier.feed_parser import has_japanese, parse_feed, parse_timestamp
 from notifier.http_client import HttpClient, RedirectBlockedError, ResponseTooLargeError
 from notifier.models import Article, DeliveryState, Digest
+from notifier.notifications.line import LineNotifier
 from notifier.notifications.slack import SlackNotifier
 from notifier.state_store import JsonStateStore
 from notifier.translation import FoundryTranslator
@@ -239,6 +240,34 @@ def _run_live(feeds_path: Path, state_path: Path, month: str, *, smoke_test: boo
             print("配信処理が完了しました。Slackで結果を確認してください。")
 
 
+def send_preview(feeds_path: Path, article_url: str) -> None:
+    """実RSSの指定記事を1件だけ送る。翻訳・配信履歴の更新は行わない。"""
+    load_dotenv(Path(__file__).resolve().parent / ".env", override=False, encoding="utf-8-sig")
+    http = HttpClient()
+    article = None
+    for feed_url in _load_feeds(feeds_path):
+        try:
+            article = next(
+                (a for a in parse_feed(http.get(feed_url)) if a.url == article_url), None
+            )
+        except Exception:
+            continue
+        if article is not None:
+            break
+    if article is None:
+        raise ConfigurationError("指定記事が登録RSSに見つかりません。まだ送信していません。")
+    digest = Digest((article,), test_message=True)
+    SlackNotifier(os.environ["SLACK_WEBHOOK_URL"], http).send(digest)
+    print("Slack: 実RSS記事1件の動作確認用送信を受け付けました。")
+    token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
+    recipient = os.environ.get("LINE_RECIPIENT_ID", "").strip()
+    if token and recipient:
+        LineNotifier(token, recipient, http).send(digest)
+        print("LINE: 同じ記事の動作確認用送信を受け付けました。")
+    else:
+        print("LINE: 設定が揃っていないため未送信です。")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Azureニュースの日次配信（既定は通信なしデモ）")
     modes = parser.add_mutually_exclusive_group()
@@ -247,6 +276,8 @@ def main() -> int:
     modes.add_argument(
         "--smoke-test", action="store_true", help="実RSSの英語記事1件を翻訳してSlackへ送る"
     )
+    modes.add_argument("--preview-test", action="store_true", help="実RSSの記事1件を送信する")
+    parser.add_argument("--article-url", help="プレビュー確認する記事のURL")
     parser.add_argument(
         "--feeds", type=Path, default=Path(__file__).resolve().parent / "feeds.json"
     )
@@ -255,6 +286,11 @@ def main() -> int:
     month = datetime.now(JST).strftime("%Y-%m")
 
     try:
+        if args.preview_test:
+            if not args.article_url:
+                raise ConfigurationError("--article-urlに実RSSの記事URLを指定してください。")
+            send_preview(args.feeds, args.article_url)
+            return 0
         if args.check_feeds:
             return _check_feeds(args.feeds)
         if args.smoke_test:

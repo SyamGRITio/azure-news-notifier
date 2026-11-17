@@ -16,6 +16,8 @@ def _encode(state: DeliveryState) -> bytes:
         "translation_attempts": state.translation_attempts,
         "delivered_urls": sorted(state.delivered_urls),
     }
+    if state.line_delivered_urls is not None:
+        data["line_delivered_urls"] = sorted(state.line_delivered_urls)
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
 
 
@@ -35,7 +37,12 @@ def _decode(data: bytes) -> DeliveryState:
         or not all(isinstance(url, str) for url in urls)
     ):
         raise ValueError("Invalid state; restore a valid backup before retrying")
-    return DeliveryState(month, attempts, set(urls))
+    line_urls = value.get("line_delivered_urls")
+    if line_urls is not None and (
+        not isinstance(line_urls, list) or not all(isinstance(url, str) for url in line_urls)
+    ):
+        raise ValueError("Invalid LINE delivery state")
+    return DeliveryState(month, attempts, set(urls), None if line_urls is None else set(line_urls))
 
 
 class JsonStateStore:
