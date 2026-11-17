@@ -11,16 +11,29 @@ from ..models import Digest
 
 def build_payload(digest: Digest) -> dict[str, Any]:
     if digest.is_summary or not digest.articles:
-        lines = ["【Azure Functions｜配信結果】", digest.heading]
-        if digest.line_enabled:
-            lines.append(f"送信成功：Slack {digest.sent_slack}件 / LINE {digest.sent_line}件")
-        lines.append(
-            f"RSS取得失敗：{digest.failed_feeds}/{digest.total_feeds}件 / "
-            f"翻訳失敗：{digest.translation_failures}件"
+        if digest.total_feeds and digest.failed_feeds == digest.total_feeds:
+            message = "記事を取得できませんでした。"
+        elif digest.delivery_failures:
+            message = (
+                "一部の記事を配信できませんでした。"
+                if digest.articles
+                else "記事を配信できませんでした。"
+            )
+        elif digest.articles:
+            message = f"記事を{len(digest.articles)}件配信しました。"
+        else:
+            message = "新しい記事はありません。"
+        lines = [f"【Azure Functions】{message}"]
+        if digest.failed_feeds:
+            lines.append(f"記事を取得できない配信元が{digest.failed_feeds}サイトあります。")
+        if digest.translation_failures:
+            lines.append(f"{digest.translation_failures}件は翻訳できず、原文で配信しました。")
+        # 正常時の内訳はログへ。利用者には対応が必要な内容だけを知らせます。
+        lines.extend(
+            notice
+            for notice in digest.notices
+            if not notice.startswith(("RSS取得失敗:", "翻訳失敗:"))
         )
-        if digest.delivery_failures:
-            lines.append("一部の送信先に届けられませんでした。成功済みの送信先へは再送しません。")
-        lines.extend(digest.notices)
         text = "\n".join(lines)
         blocks = [{"type": "section", "text": {"type": "plain_text", "text": text}}]
     else:

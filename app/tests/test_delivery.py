@@ -58,10 +58,7 @@ def test_feed_translation_slack_and_persistent_state(tmp_path):
     assert http.calls[0][1]["max_completion_tokens"] == 400
     assert http.calls[1][1]["blocks"][1]["text"]["text"] == "<https://example.com/a|更新>"
     assert http.calls[1][1]["blocks"][2]["text"]["text"] == "概要"
-    assert (
-        http.calls[2][1]["text"]
-        == "【Azure Functions｜配信結果】\n配信完了：1件\nRSS取得失敗：0/1件 / 翻訳失敗：0件"
-    )
+    assert http.calls[2][1]["text"] == "【Azure Functions】記事を1件配信しました。"
 
 
 def test_incomplete_translation_is_rejected():
@@ -207,8 +204,8 @@ def test_separate_slack_posts_checkpoint_each_article_and_retry_only_failed_one(
             now=now,
         )
     assert store.load().delivered_urls == {"https://example.com/a"}
-    assert "一部失敗：1件" in http.calls[-1][1]["text"]
-    assert "一部の送信先" in http.calls[-1][1]["text"]
+    assert "一部の記事を配信できませんでした" in http.calls[-1][1]["text"]
+    assert "Slack送信失敗" in http.calls[-1][1]["text"]
 
     http.calls.clear()
     http.fail_second = False
@@ -240,3 +237,101 @@ def test_article_previews_enabled_but_result_preview_disabled():
         payload = build_payload(result)
         assert payload["unfurl_links"] is False
         assert payload["unfurl_media"] is False
+
+
+def test_zero_articles_is_clear_and_does_not_imply_line_was_called():
+    digest = Digest((), total_feeds=9, is_summary=True, line_enabled=True)
+    payload = build_payload(digest)
+    assert payload["text"] == "【Azure Functions】新しい記事はありません。"
+    assert "0/9" not in payload["text"]
+    assert "送信成功" not in payload["text"]
+
+
+def test_only_actual_problems_are_shown_in_result():
+    article = Article("更新", "概要", "https://example.com/a")
+    digest = Digest(
+        (article,),
+        notices=("LINE送信失敗: 未送信の記事は次回再試行",),
+        total_feeds=9,
+        delivery_failures=1,
+        is_summary=True,
+        line_enabled=True,
+    )
+    payload = build_payload(digest)
+    assert "一部の記事を配信できませんでした" in payload["text"]
+    assert "LINE送信失敗" in payload["text"]
+    assert "取得失敗：0" not in payload["text"]
+
+
+def test_all_feeds_failed_is_not_reported_as_no_new_articles():
+    text = build_payload(Digest((), failed_feeds=9, total_feeds=9, is_summary=True))["text"]
+    assert "記事を取得できませんでした" in text
+    assert "新しい記事はありません" not in text
+
+
+@pytest.mark.parametrize("failed_channel", ["Slack", "LINE"])
+def test_destination_checkpoint_retries_only_failed_channel(tmp_path, failed_channel):
+    xml = "<rss><channel><item><title>更新</title><link>https://example.com/a</link></item></channel></rss>".encode()
+    store = JsonStateStore(tmp_path / "state.json")
+    calls = {"Slack": [], "LINE": []}
+    should_fail = True
+
+    def receiver(name):
+        def send(digest):
+            if digest.is_summary:
+                return
+            calls[name].append(digest.articles[0].url)
+            if should_fail and name == failed_channel:
+                raise OSError("Unavailable")
+
+        return send
+
+    with pytest.raises(OSError):
+        run(
+            ["feed"],
+            lambda _: xml,
+            lambda a: a,
+            receiver("Slack"),
+            store.load(),
+            "2026-11",
+            store.save,
+            send_line=receiver("LINE"),
+        )
+    should_fail = False
+    run(
+        ["feed"],
+        lambda _: xml,
+        lambda a: a,
+        receiver("Slack"),
+        store.load(),
+        "2026-11",
+        store.save,
+        send_line=receiver("LINE"),
+    )
+    assert len(calls[failed_channel]) == 2
+    successful_channel = "Slack" if failed_channel == "LINE" else "LINE"
+    assert len(calls[successful_channel]) == 1
+    assert store.load().delivered_urls == {"https://example.com/a"}
+    assert store.load().line_delivered_urls == {"https://example.com/a"}
+
+
+def test_line_sends_article_with_recipient_and_does_not_send_summary():
+    from notifier.notifications.line import LineNotifier
+
+    class LineHttp:
+        calls = []
+
+        def post_json(self, url, payload, headers=None):
+            self.calls.append((url, payload, headers))
+            return b"{}"
+
+    http = LineHttp()
+    notifier = LineNotifier("fake-token", "U" + "0" * 32, http)
+    notifier.send(Digest((), is_summary=True))
+    assert http.calls == []
+    article = Article("更新", "概要", "https://example.com/a")
+    notifier.send(Digest((article,)))
+    assert len(http.calls) == 1
+    assert http.calls[0][1]["to"] == "U" + "0" * 32
+    assert article.url in http.calls[0][1]["messages"][0]["text"]
+    assert http.calls[0][2] == {"Authorization": "Bearer fake-token"}

@@ -68,6 +68,19 @@ def run_azure():
                 def send(digest):
                     # 排他を失った実行が、遅れてSlackへ投稿することを防ぎます。
                     store.ensure_lock()
+                    if digest.is_summary:
+                        logging.info(
+                            "Azure news delivery result: configured_feeds=%s articles=%s "
+                            "sent_slack=%s sent_line=%s failed_feeds=%s "
+                            "translation_failures=%s delivery_failures=%s",
+                            digest.total_feeds,
+                            len(digest.articles),
+                            digest.sent_slack,
+                            digest.sent_line,
+                            digest.failed_feeds,
+                            digest.translation_failures,
+                            digest.delivery_failures,
+                        )
                     slack.send(digest)
 
                 def send_line(digest):
