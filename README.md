@@ -34,11 +34,11 @@ RSSだけを実取得する場合は `python local_check.py --check-feeds` で�
 
 `app/.env.example` を `app/.env` へコピーし、次の3項目を設定します。
 
-|設定|入れる値|
-|---|---|
-|FOUNDRY_ENDPOINT|Foundry / Azure OpenAIのエンドポイント|
-|FOUNDRY_DEPLOYMENT|作成したモデルのデプロイ名|
-|SLACK_WEBHOOK_URL|Slack Incoming WebhookのURL|
+| 設定               | 入れる値                               |
+| ------------------ | -------------------------------------- |
+| FOUNDRY_ENDPOINT   | Foundry / Azure OpenAIのエンドポイント |
+| FOUNDRY_DEPLOYMENT | 作成したモデルのデプロイ名             |
+| SLACK_WEBHOOK_URL  | Slack Incoming WebhookのURL            |
 
 `.env` は自動で読み込みます。既存の環境変数が優先されます。秘密の実値はGitへ入れません。
 Azure CLIでログインした開発者に、対象FoundryのCognitive Services OpenAI Userが必要です。
