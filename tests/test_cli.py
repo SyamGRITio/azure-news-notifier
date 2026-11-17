@@ -5,7 +5,8 @@ def test_default_demo_is_offline_and_does_not_save_state(monkeypatch, tmp_path, 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", ["notifier"])
     monkeypatch.setattr(
-        "notifier.http_client.HttpClient.get", lambda *_: (_ for _ in ()).throw(AssertionError())
+        "notifier.http_client.HttpClient.get",
+        lambda *_: (_ for _ in ()).throw(AssertionError()),
     )
     assert cli.main() == 0
     assert "外部通信を行わない動作確認" in capsys.readouterr().out

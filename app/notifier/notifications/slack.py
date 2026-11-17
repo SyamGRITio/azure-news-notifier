@@ -13,6 +13,8 @@ def build_payload(digest: Digest) -> dict[str, Any]:
     if digest.is_summary or not digest.articles:
         if digest.total_feeds and digest.failed_feeds == digest.total_feeds:
             message = "記事を取得できませんでした。"
+        elif digest.failed_feeds and not digest.articles:
+            message = "一部の配信元を確認できませんでした。"
         elif digest.delivery_failures:
             message = (
                 "一部の記事を配信できませんでした。"

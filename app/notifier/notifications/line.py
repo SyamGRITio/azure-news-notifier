@@ -16,6 +16,7 @@ class LineNotifier:
         self._http = http
 
     def send(self, digest: Digest) -> None:
+        """記事だけを送信する。API受付と端末での受信確認は別に扱う。"""
         if digest.is_summary or not digest.articles:
             return
         if len(digest.articles) != 1:

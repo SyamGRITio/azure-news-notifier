@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 
+# dataclassは、記事の項目をまとめて持つための仕組みです。
 @dataclass(frozen=True)
 class Article:
     title: str
@@ -16,6 +17,8 @@ class Article:
 class DeliveryState:
     month: str = ""
     translation_attempts: int = 0
+    # 次回の配信から除外するURLです。API受付済みと、LINE導入時の引き継ぎを含みます。
+    # 端末での受信・既読の記録ではありません。
     delivered_urls: set[str] = field(default_factory=set)
     line_delivered_urls: set[str] | None = None
 

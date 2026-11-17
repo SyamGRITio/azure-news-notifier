@@ -319,7 +319,8 @@ def test_line_sends_article_with_recipient_and_does_not_send_summary():
     from notifier.notifications.line import LineNotifier
 
     class LineHttp:
-        calls = []
+        def __init__(self):
+            self.calls = []
 
         def post_json(self, url, payload, headers=None):
             self.calls.append((url, payload, headers))
@@ -335,3 +336,35 @@ def test_line_sends_article_with_recipient_and_does_not_send_summary():
     assert http.calls[0][1]["to"] == "U" + "0" * 32
     assert article.url in http.calls[0][1]["messages"][0]["text"]
     assert http.calls[0][2] == {"Authorization": "Bearer fake-token"}
+
+
+def test_partial_collection_failure_is_not_reported_as_no_new_articles():
+    text = build_payload(Digest((), failed_feeds=1, total_feeds=9, is_summary=True))["text"]
+    assert "新しい記事はありません" not in text
+    assert "一部の配信元を確認できませんでした" in text
+
+
+def test_line_only_replay_preserves_slack_history_and_translation_budget(tmp_path):
+    from notifier.models import DeliveryState
+
+    url = "https://example.com/a"
+    xml = b"<rss><channel><item><title>English update</title><link>https://example.com/a</link></item></channel></rss>"
+    store = JsonStateStore(tmp_path / "state.json")
+    state = DeliveryState("2026-11", 3, {url}, set())
+    slack_calls = []
+    line_calls = []
+    run(
+        ["feed"],
+        lambda _: xml,
+        lambda a: Article("更新", "概要", a.url),
+        slack_calls.append,
+        state,
+        "2026-11",
+        store.save,
+        send_line=line_calls.append,
+    )
+    assert len(line_calls) == 1
+    assert all(digest.is_summary for digest in slack_calls)
+    assert store.load().delivered_urls == {url}
+    assert store.load().line_delivered_urls == {url}
+    assert store.load().translation_attempts == 4

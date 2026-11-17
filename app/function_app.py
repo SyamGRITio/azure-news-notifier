@@ -19,11 +19,13 @@ from notifier.notifications.slack import SlackNotifier
 from notifier.state_store import AlreadyRunningError, BlobStateStore
 from notifier.translation import FoundryTranslator
 
+# 読む順番は daily_news → run_azure → notifier/core.py の run です。
 app = func.FunctionApp()
 JST = timezone(timedelta(hours=9))
 
 
 def run_azure():
+    """Azure用の設定・認証・保存先を用意し、配信本体へ渡す。"""
     # 開始日時の未設定で過去記事を大量配信しないよう、外部接続前に検証します。
     start_at = parse_timestamp(os.environ.get("DELIVERY_START_AT", ""))
     feeds = json.loads(Path(__file__).with_name("feeds.json").read_text(encoding="utf-8-sig"))
@@ -43,6 +45,7 @@ def run_azure():
             with store.locked():
                 state = store.load()
                 http = HttpClient()
+                # トークン取得関数を渡し、実際に翻訳するときだけ認証情報を取得します。
                 translator = FoundryTranslator(
                     os.environ["FOUNDRY_ENDPOINT"],
                     os.environ["FOUNDRY_DEPLOYMENT"],
@@ -51,6 +54,7 @@ def run_azure():
                     ),
                     http,
                 )
+                # Key Vault参照はFunctionsが解決済みの値を環境変数から受け取ります。
                 slack = SlackNotifier(os.environ["SLACK_WEBHOOK_URL"], http)
                 line_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
                 line_recipient = os.environ.get("LINE_RECIPIENT_ID", "").strip()
@@ -87,6 +91,7 @@ def run_azure():
                     store.ensure_lock()
                     line.send(digest)
 
+                # ここから先のRSS取得・翻訳・配信の順序はcore.pyに集約します。
                 result = run(
                     feeds,
                     http.get,
@@ -110,6 +115,7 @@ def run_azure():
                 return result
 
 
+# @はこの関数の起動方法をAzureへ登録する印です。読み込み時に即実行はしません。
 @app.function_name(name="daily_news")
 # Flex LinuxのタイマーはUTC指定。23:00 UTC = 翌日08:00 JST。
 @app.timer_trigger(

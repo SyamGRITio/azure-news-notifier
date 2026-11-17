@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from typing import Literal
 
 from .feed_parser import has_japanese, parse_feed
 from .models import Article, DeliveryState, Digest
@@ -43,13 +44,12 @@ def _translate_or_original(
     state: DeliveryState,
     save_state: SaveState,
     monthly_limit: int,
-    notices: list[str],
-) -> Article:
+) -> tuple[Article, Literal["failed", "limited"] | None]:
+    # 記事と結果区分を返します。通知文を変えても失敗件数の集計が壊れない形です。
     if has_japanese(article.title):
-        return article
+        return article, None
     if state.translation_attempts >= monthly_limit:
-        notices.append("月間翻訳上限: 原文を配信")
-        return article
+        return article, "limited"
 
     # API呼び出し前に枠を予約保存します。保存失敗時は翻訳せず処理を停止します。
     state.translation_attempts += 1
@@ -58,10 +58,9 @@ def _translate_or_original(
         translated = translate(article)
         if not isinstance(translated, Article) or translated.url != article.url:
             raise ValueError("Translator changed article identity")
-        return translated
+        return translated, None
     except Exception:
-        notices.append("翻訳失敗: 原文を配信")
-        return article
+        return article, "failed"
 
 
 def run(
@@ -79,7 +78,11 @@ def run(
     now: datetime | None = None,
     send_line: SendDigest | None = None,
 ) -> Digest:
-    """1回の日次配信。同じ状態ファイルを使うプロセスは同時起動しない。"""
+    """日次配信の本体。ここを上から読むと通常処理の順序を追えます。
+
+    設定確認 → RSS収集 → 新着・未送信を選択 → 翻訳 → 各宛先へ送信・保存 → 結果通知。
+    Azure認証やBlobの排他は、呼び出し元のfunction_app.pyが用意します。
+    """
     if not 1 <= len(feeds) <= 9:
         raise ValueError("Configure between one and nine feeds")
     if not 1 <= daily_limit <= 10 or not 0 <= monthly_limit <= 30:
@@ -102,6 +105,7 @@ def run(
     delivered_urls = state.delivered_urls
     if send_line is not None:
         delivered_urls = state.delivered_urls & state.line_delivered_urls
+    # 収集と選別: サイトから記事を取り、開始日時と送信履歴で対象を絞ります。
     candidates, notices, failed_feeds = _collect_articles(feeds, fetch, delivered_urls)
     skipped_undated = 0
     if start_at is not None:
@@ -144,14 +148,17 @@ def run(
             line_enabled=send_line is not None,
         )
 
+    # 記事ごとの処理: 翻訳は共通で行い、配信と保存は宛先ごとに行います。
     for article in selected:
-        article_notices: list[str] = []
-        translated = _translate_or_original(
-            article, translate, state, save_state, monthly_limit, article_notices
+        translated, translation_status = _translate_or_original(
+            article, translate, state, save_state, monthly_limit
         )
-        translation_failures += int("翻訳失敗: 原文を配信" in article_notices)
-        translation_limited |= "月間翻訳上限: 原文を配信" in article_notices
-        notices.extend(article_notices)
+        if translation_status == "failed":
+            translation_failures += 1
+            notices.append("翻訳失敗: 原文を配信")
+        elif translation_status == "limited":
+            translation_limited = True
+            notices.append("月間翻訳上限: 原文を配信")
         # 送信先ごとに成功を保存します。片方の失敗でも、もう片方は配信を続けます。
         destinations = [("Slack", send, state.delivered_urls)]
         if send_line is not None:
@@ -176,6 +183,7 @@ def run(
         ):
             delivered.append(translated)
 
+    # 利用者向けの結果はSlackへ1回だけ。詳細件数は呼び出し元でログに残します。
     digest = result(delivery_failures=len(send_errors))
     send(digest)
     save_state(state)

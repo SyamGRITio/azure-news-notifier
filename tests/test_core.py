@@ -92,7 +92,8 @@ def test_monthly_limit_sends_original_and_next_month_resets_counter():
 
 def test_daily_limit_does_not_mark_remaining_articles_as_read():
     xml = RSS.replace(
-        b"</channel>", b"<item><title>B</title><link>https://example.com/b</link></item></channel>"
+        b"</channel>",
+        b"<item><title>B</title><link>https://example.com/b</link></item></channel>",
     )
     state = DeliveryState()
     digest = run(
@@ -160,7 +161,8 @@ def test_failed_budget_checkpoint_stops_before_calling_translation():
 
 
 @pytest.mark.parametrize(
-    "feeds,daily,monthly", [([], 10, 30), (["x"] * 10, 10, 30), (["x"], 11, 30), (["x"], 10, 31)]
+    "feeds,daily,monthly",
+    [([], 10, 30), (["x"] * 10, 10, 30), (["x"], 11, 30), (["x"], 10, 31)],
 )
 def test_reject_unsupported_limits(feeds, daily, monthly):
     with pytest.raises(ValueError):

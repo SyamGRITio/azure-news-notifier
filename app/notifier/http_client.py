@@ -1,4 +1,4 @@
-"""公開フィード、Foundry、Slackに共通のHTTP制限。"""
+"""公開フィード、Foundry、Slack、LINEに共通のHTTP通信と制限。"""
 
 import json
 from typing import Any
