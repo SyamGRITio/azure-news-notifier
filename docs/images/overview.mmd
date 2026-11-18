@@ -1,5 +1,5 @@
 flowchart LR
-    start["起動"] --> feeds["RSSから記事を取得"]
-    feeds --> dedup["配信済みを除外"]
-    dedup --> translation["英語なら日本語に翻訳"]
-    translation --> slack["Slackへまとめて送信"]
+  rss["RSSを取得"] --> select["新着・未送信を選ぶ"]
+  select --> translate["英語を日本語へ翻訳"]
+  translate --> send["Slack・LINEへ記事を配信"]
+  send --> state["宛先ごとに履歴を保存"]
